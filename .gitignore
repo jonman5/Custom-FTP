@@ -1,0 +1,18 @@
+
+venv/Lib/site-packages/_distutils_hack/__init__.py
+/venv/
+# Default ignored files
+/shelf/
+/workspace.xml
+# Datasource local storage ignored files
+/../../../../../../../../../:\Users\Jonathan\OneDrive - Concordia University - Canada\Winter 2022\COEN 366\Project\Project Code\.idea/dataSources/
+/dataSources.local.xml
+# Editor-based HTTP Client requests
+/httpRequests/
+.idea/codeStyles/codeStyleConfig.xml
+.idea/inspectionProfiles/profiles_settings.xml
+.idea/inspectionProfiles/Project_Default.xml
+.idea/modules.xml
+.idea/Project Code.iml
+.idea/vcs.xml
+.idea/misc.xml
