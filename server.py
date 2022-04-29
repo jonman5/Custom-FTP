@@ -1,14 +1,18 @@
 # COEN 366 Project Winter 2022
-# By Jonathan Perlman 40094762
-
 # server.py
-
+# By Jonathan Perlman 40094762
+# I, Jonathan Perlman, am the sole author and contributor of this file "server.py"
+import os
+import time
+from math import ceil
 from socket import *
 import sys
-from pathlib import Path
 
-# print(f"Arguments of the script : {sys.argv[1:]=}")
 
+# Function parse_request takes the raw request that was received by the server parses it for
+# opcode, filename, FS (filesize), new_filename (if applicable)
+# The function returns opcode, filename, FS, new_filename, success based on request
+# success is 1 if function succeeded in extracting all applicable information from the request, 0 otherwise
 
 def parse_request(request):
 	try:
@@ -20,28 +24,33 @@ def parse_request(request):
 		new_filename = ""
 		FS = 0
 		# Extract filename based on FL
-		if FL > 0 & (opcode != 0b010):
+		if FL > 0 and (opcode != 0b010):
 			filename = request[1:FL].decode()
-			print(f"filename = {filename}")
-			FS = int.from_bytes(request[FL+1:FL+5], byteorder='big')
-			print(f"FS = {FS}")
+			FS = int.from_bytes(request[FL:FL + 5], byteorder='big')
+			if debugMode:
+				print(f"message received from client: opcode = {opcode}, FL = {FL}, filename = {filename}, FS = {FS}")
+				print(f"raw message received from client: {request.decode()}")
 		# Extract new filename if change request
-		if opcode == 0b010:
+		elif opcode == 0b010:
 			filename = request[1:FL].decode()
-			print(f"filename = {filename}")
-			NFL = [FL+1]
-			new_filename = request[FL+2:NFL+FL+2].decode()
-			print(f"new filename = {new_filename}")
+			NFL = request[FL]
+			new_filename = request[FL + 1:NFL + FL + 2].decode()
+			if debugMode:
+				print(
+					f"message received from client: opcode = {opcode}, FL = {FL}, filename = {filename}, new filename = {new_filename}")
+				print(f"raw message received from client: {request.decode()}")
 		success = 1
 		return opcode, filename, FS, new_filename, success
 	except Exception:
 		print("Error: cannot process client request")
+		conn.send(0b01100000.to_bytes(1, byteorder='big'))
 		return 0, "", 0, "", 0
+
 
 try:
 	serverPort = sys.argv[1]
 	debugMode = False
-	if sys.argv[2] == 1:
+	if int(sys.argv[2]) > 0:
 		debugMode = True
 except IndexError:
 	raise SystemExit(f"Usage: {sys.argv[0]} <port> <Debug mode (0 or 1)>")
@@ -66,18 +75,17 @@ while 1:
 				print("Client disconnected.")
 				break  # Restart listening for connections
 
-			print(f"req = {req}")
 			opcode, filename, filesize, new_fileName, success = parse_request(req)
 			if not success:
 				conn.send(0b01100000.to_bytes(1, byteorder='big'))
-			print(f"opcode = {opcode}")
 
 			if opcode == 0b000:  # Put
 				try:
-					# Path("jFTP").mkdir(exist_ok=True)
-					data = conn.recv(filesize+100).decode()
-					with open(filename, "w") as newfile:
-						newfile.write(data)
+					number_of_chunks = ceil(filesize / 4096)
+					with open(filename, "wb") as newfile:
+						for i in range(0, number_of_chunks):
+							data = conn.recv(4096)
+							newfile.write(data)
 					conn.send(0x00.to_bytes(1, byteorder='big'))
 				except IOError:  # Error in reading or writing data
 					print("Error in reading or writing data")
@@ -86,23 +94,40 @@ while 1:
 			elif opcode == 0b001:  # Get
 				byte1 = (0b00100000 | (len(filename) + 1)).to_bytes(1, byteorder='big')
 				try:
-					with open(filename, "r") as file:
-						data = file.read()
-						file_size = len(data)
-						if file_size > (2**32 - 1):
-							print("File too large")
-							raise IOError
-						FS = file_size.to_bytes(4, byteorder='big')
-						response = byte1 + filename.encode() + FS
-						conn.send(response)
-						conn.send(data.encode())
+					# check if file exists
+					if not os.path.exists(filename):
+						conn.send(0b01100000.to_bytes(1, byteorder='big'))
+
+					file_size = os.stat(filename).st_size
+					if file_size > (2 ** 32 - 1):
+						print("File requested is too large!")
+						raise IOError
+
+					FS = file_size.to_bytes(4, byteorder='big')
+					response = byte1 + filename.encode() + FS
+					conn.send(response)
+					time.sleep(0.2)
+					number_of_chunks = ceil(file_size / 4096)
+
+					with open(filename, "rb") as file:
+						for i in range(0, number_of_chunks):
+							data = file.read(4096)
+							if data:
+								conn.send(data)
+							else:
+								raise IOError
+
 				except IOError:  # Error in reading or writing data
 					print("Error in reading or writing data")
+					conn.send(0b01100000.to_bytes(1, byteorder='big'))
 
 			elif opcode == 0b010:  # Change
-				# try:
-
-				conn.send(0b10100000.to_bytes(1, byteorder='big'))
+				try:
+					os.replace(filename, new_fileName)
+				except (Exception):
+					conn.send(0b10100000.to_bytes(1, byteorder='big'))
+				finally:
+					conn.send(0b0.to_bytes(1, byteorder='big'))
 
 			elif opcode == 0b011:  # Help
 				resCode = 0b110 << 5
@@ -113,15 +138,11 @@ while 1:
 				response = byte1 + helpMessage.encode()
 				conn.send(response)
 
-	except IndexError:
+	except (IndexError, Exception):
 		print("Server error.")
-		continue # Restart listening for connections
+		continue  # Restart listening for connections
 	except (ConnectionResetError, ConnectionAbortedError):
 		print("Client disconnected.")
 		continue  # Restart listening for connections
-# break
+
 conn.close()
-
-
-
-
